@@ -110,7 +110,14 @@ class DatabaseManager:
     def get_unnotified_stories(self) -> List[DownloadedStory]:
         """Получить stories, о которых еще не уведомили"""
         with self.get_session() as db:
-            return db.query(DownloadedStory).filter_by(notified=False).all()
+            return db.query(DownloadedStory).filter_by(notified=False).order_by(
+                DownloadedStory.downloaded_at.asc()
+            ).all()
+
+    def count_unnotified_stories(self) -> int:
+        """Получить количество накопленных неотправленных stories"""
+        with self.get_session() as db:
+            return db.query(DownloadedStory).filter_by(notified=False).count()
     
     def mark_story_notified(self, story_id: str) -> None:
         """Отметить story как отправленную"""

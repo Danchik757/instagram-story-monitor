@@ -25,12 +25,19 @@ safety = InstagramSafety()
 class SafeInstagramClient:
     """Безопасный клиент для работы с Instagram"""
     
-    def __init__(self, username: str, password: str, session_dir: str = "./data/sessions"):
+    def __init__(
+        self,
+        username: str,
+        password: str,
+        session_dir: str = "./data/sessions",
+        proxy_url: Optional[str] = None,
+    ):
         self.username = username
         self.password = password
         self.session_dir = Path(session_dir)
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self.session_file = self.session_dir / f"{username}.json"
+        self.proxy_url = proxy_url
         
         self.client = None
         self.safety = InstagramSafety()
@@ -64,6 +71,9 @@ class SafeInstagramClient:
         """Безопасный вход в Instagram"""
         try:
             self.client = Client()
+            if self.proxy_url:
+                self.client.set_proxy(self.proxy_url)
+                logger.info(f"Instagram клиент использует proxy {self.proxy_url}")
             
             # Настройки для обхода детекции
             self.client.delay_range = [1, 3]

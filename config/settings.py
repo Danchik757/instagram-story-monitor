@@ -55,6 +55,24 @@ if not TRACKED_ACCOUNTS:
 CHECK_INTERVAL_HOURS = float(os.getenv("CHECK_INTERVAL_HOURS", "4"))
 INTERVAL_RANDOMNESS_MINUTES = int(os.getenv("INTERVAL_RANDOMNESS_MINUTES", "30"))
 
+# Режим доставки в Telegram
+TELEGRAM_DELIVERY_MODE = os.getenv("TELEGRAM_DELIVERY_MODE", "immediate").strip().lower()
+if TELEGRAM_DELIVERY_MODE not in {"immediate", "daily_digest"}:
+    raise ValueError(
+        "TELEGRAM_DELIVERY_MODE должен быть 'immediate' или 'daily_digest'"
+    )
+
+DAILY_DIGEST_TIME = os.getenv("DAILY_DIGEST_TIME", "21:00").strip()
+try:
+    DAILY_DIGEST_HOUR_STR, DAILY_DIGEST_MINUTE_STR = DAILY_DIGEST_TIME.split(":", maxsplit=1)
+    DAILY_DIGEST_HOUR = int(DAILY_DIGEST_HOUR_STR)
+    DAILY_DIGEST_MINUTE = int(DAILY_DIGEST_MINUTE_STR)
+except ValueError as exc:
+    raise ValueError("DAILY_DIGEST_TIME должен быть в формате HH:MM") from exc
+
+if not (0 <= DAILY_DIGEST_HOUR <= 23 and 0 <= DAILY_DIGEST_MINUTE <= 59):
+    raise ValueError("DAILY_DIGEST_TIME должен быть корректным временем в формате HH:MM")
+
 # Настройки безопасности
 MIN_DELAY_SECONDS = int(os.getenv("MIN_DELAY_SECONDS", "10"))
 MAX_DELAY_SECONDS = int(os.getenv("MAX_DELAY_SECONDS", "30"))
@@ -62,7 +80,12 @@ MAX_STORIES_PER_CHECK = int(os.getenv("MAX_STORIES_PER_CHECK", "10"))
 
 # VPN настройки
 USE_VPN = os.getenv("USE_VPN", "false").lower() == "true"
+VPN_PROTOCOL = os.getenv("VPN_PROTOCOL", "auto").strip().lower()
+if VPN_PROTOCOL not in {"auto", "wireguard", "xray_vless"}:
+    raise ValueError("VPN_PROTOCOL должен быть 'auto', 'wireguard' или 'xray_vless'")
+
 VPN_CONFIG_PATH = os.getenv("VPN_CONFIG_PATH", "./config/wireguard.conf")
+XRAY_CONFIG_PATH = os.getenv("XRAY_CONFIG_PATH", "/usr/local/etc/xray/config.json")
 
 # Режимы работы
 CATCH_UP_MODE = os.getenv("CATCH_UP_MODE", "true").lower() == "true"
@@ -93,4 +116,6 @@ MESSAGES = {
     "check_completed": "✔️ Проверка завершена. Новых историй: {count}",
     "vpn_error": "🔴 VPN не подключен!",
     "session_expired": "🔄 Сессия Instagram истекла, выполняется повторный вход...",
+    "daily_digest_header": "📦 Ежедневная отправка stories за {timestamp}",
+    "daily_digest_empty": "📭 На {timestamp} новых stories для отправки нет",
 }

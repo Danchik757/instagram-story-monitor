@@ -13,9 +13,9 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config.settings import (
-    INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD, 
+    INSTAGRAM_USERNAME, INSTAGRAM_PASSWORD,
     TRACKED_ACCOUNTS, LOG_LEVEL, LOG_FORMAT,
-    USE_VPN, DEBUG_MODE
+    USE_VPN, DEBUG_MODE, TELEGRAM_DELIVERY_MODE
 )
 from src.instagram.client import SafeInstagramClient
 from src.instagram.story import StoryHandler
@@ -77,12 +77,24 @@ class InstagramStoryMonitor:
                         return False
                 else:
                     logger.success(f"VPN активен: {vpn_status['ip']} ({vpn_status['country']})")
+
+            proxy_url = None
+            if USE_VPN and VPNChecker.detect_vpn_backend() == 'xray_vless':
+                proxy_url = VPNChecker.get_xray_proxy_url()
+                if proxy_url:
+                    logger.info(f"Используем Xray proxy для Instagram: {proxy_url}")
+                else:
+                    logger.warning(
+                        "Xray/VLESS обнаружен, но локальный socks/http inbound не найден. "
+                        "Instagram клиент будет запущен без явного proxy."
+                    )
             
             # Инициализируем Instagram клиент
             logger.info("Инициализация Instagram клиента...")
             self.instagram_client = SafeInstagramClient(
-                INSTAGRAM_USERNAME, 
-                INSTAGRAM_PASSWORD
+                INSTAGRAM_USERNAME,
+                INSTAGRAM_PASSWORD,
+                proxy_url=proxy_url,
             )
             
             # Пробуем залогиниться
@@ -151,12 +163,25 @@ class InstagramStoryMonitor:
             db_manager.save_check_history(stats)
             
             # Отправляем уведомления о новых stories
-            if stats['stories_downloaded'] > 0:
+            if (
+                TELEGRAM_DELIVERY_MODE == "immediate"
+                and stats['stories_downloaded'] > 0
+            ):
                 sent_count = await notifier_bot.send_pending_notifications()
                 logger.info(f"Отправлено {sent_count} уведомлений")
+            elif (
+                TELEGRAM_DELIVERY_MODE == "daily_digest"
+                and stats['stories_downloaded'] > 0
+            ):
+                pending_count = db_manager.count_unnotified_stories()
+                logger.info(
+                    "Новые stories сохранены до ежедневной отправки. "
+                    f"Сейчас в очереди: {pending_count}"
+                )
             
             # Отправляем сводку
-            await NotificationHandler.send_summary(notifier_bot, stats)
+            if TELEGRAM_DELIVERY_MODE == "immediate":
+                await NotificationHandler.send_summary(notifier_bot, stats)
             
             logger.success(
                 f">>> Проверка завершена за {duration} сек. "
@@ -183,6 +208,7 @@ class InstagramStoryMonitor:
         
         # Устанавливаем функцию проверки для планировщика
         story_scheduler.set_check_function(self.check_stories_task)
+        story_scheduler.set_notification_function(self.deliver_pending_stories_task)
         
         # Запускаем планировщик
         story_scheduler.start(run_immediately=True)
@@ -199,6 +225,20 @@ class InstagramStoryMonitor:
             logger.error(f"Критическая ошибка: {e}")
         finally:
             await self.shutdown()
+
+    async def deliver_pending_stories_task(self):
+        """Отправить накопленные stories в Telegram"""
+        pending_count = db_manager.count_unnotified_stories()
+        if pending_count == 0:
+            logger.info("Для ежедневной отправки новых stories нет")
+            return
+
+        await notifier_bot.send_daily_digest_header()
+        sent_count = await notifier_bot.send_pending_notifications()
+        await notifier_bot.send_daily_digest_summary(sent_count, pending_count)
+        logger.info(
+            f"Ежедневная отправка завершена: отправлено {sent_count} из {pending_count}"
+        )
     
     async def shutdown(self):
         """Корректное завершение работы"""

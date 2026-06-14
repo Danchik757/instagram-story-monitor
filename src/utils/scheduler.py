@@ -7,13 +7,17 @@ import random
 from datetime import datetime, timedelta
 from typing import Optional, Callable
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from loguru import logger
 
 from config.settings import (
-    CHECK_INTERVAL_HOURS, 
+    CHECK_INTERVAL_HOURS,
     INTERVAL_RANDOMNESS_MINUTES,
-    CATCH_UP_MODE
+    CATCH_UP_MODE,
+    TELEGRAM_DELIVERY_MODE,
+    DAILY_DIGEST_HOUR,
+    DAILY_DIGEST_MINUTE,
 )
 
 
@@ -23,12 +27,17 @@ class StoryScheduler:
     def __init__(self):
         self.scheduler = AsyncIOScheduler()
         self.check_function: Optional[Callable] = None
+        self.notification_function: Optional[Callable] = None
         self.is_running = False
         self.last_check_time: Optional[datetime] = None
         
     def set_check_function(self, func: Callable):
         """Установить функцию для проверки stories"""
         self.check_function = func
+
+    def set_notification_function(self, func: Callable):
+        """Установить функцию отложенной отправки уведомлений"""
+        self.notification_function = func
         
     async def _run_check(self):
         """Выполнить проверку stories"""
@@ -47,6 +56,19 @@ class StoryScheduler:
             
         except Exception as e:
             logger.error(f"Ошибка при выполнении проверки: {e}")
+
+    async def _run_daily_digest(self):
+        """Отправить накопленные уведомления по ежедневному расписанию"""
+        if not self.notification_function:
+            logger.error("Не установлена функция отправки ежедневного дайджеста")
+            return
+
+        try:
+            logger.info("=== Начинаем ежедневную отправку накопленных stories ===")
+            await self.notification_function()
+            logger.info("=== Ежедневная отправка завершена ===")
+        except Exception as e:
+            logger.error(f"Ошибка при ежедневной отправке: {e}")
     
     def _get_next_run_time(self) -> datetime:
         """Получить время следующего запуска с рандомизацией"""
@@ -89,6 +111,19 @@ class StoryScheduler:
                 replace_existing=True,
                 max_instances=1  # Только один экземпляр задачи
             )
+
+            if TELEGRAM_DELIVERY_MODE == "daily_digest":
+                self.scheduler.add_job(
+                    self._run_daily_digest,
+                    trigger=CronTrigger(
+                        hour=DAILY_DIGEST_HOUR,
+                        minute=DAILY_DIGEST_MINUTE,
+                    ),
+                    id='daily_digest',
+                    name='Ежедневная отправка stories в Telegram',
+                    replace_existing=True,
+                    max_instances=1,
+                )
             
             # Запускаем планировщик
             self.scheduler.start()
@@ -98,6 +133,11 @@ class StoryScheduler:
                 f"Планировщик запущен. Проверка каждые {CHECK_INTERVAL_HOURS} часов "
                 f"(±{INTERVAL_RANDOMNESS_MINUTES} минут)"
             )
+            if TELEGRAM_DELIVERY_MODE == "daily_digest":
+                logger.success(
+                    "Ежедневная отправка включена: "
+                    f"{DAILY_DIGEST_HOUR:02d}:{DAILY_DIGEST_MINUTE:02d}"
+                )
             
             # Запускаем первую проверку сразу если нужно
             if run_immediately:
@@ -126,6 +166,16 @@ class StoryScheduler:
             return None
             
         job = self.scheduler.get_job('story_check')
+        if job:
+            return job.next_run_time
+        return None
+
+    def get_next_digest_time(self) -> Optional[datetime]:
+        """Получить время следующей ежедневной отправки"""
+        if not self.is_running or TELEGRAM_DELIVERY_MODE != "daily_digest":
+            return None
+
+        job = self.scheduler.get_job('daily_digest')
         if job:
             return job.next_run_time
         return None

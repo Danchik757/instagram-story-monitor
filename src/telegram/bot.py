@@ -14,10 +14,15 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from loguru import logger
 
 from config.settings import (
-    TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, MESSAGES, 
-    TRACKED_ACCOUNTS, MAX_FILE_SIZE_MB
+    TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, MESSAGES,
+    TRACKED_ACCOUNTS, MAX_FILE_SIZE_MB,
+    CHECK_INTERVAL_HOURS,
+    TELEGRAM_DELIVERY_MODE,
+    DAILY_DIGEST_TIME,
 )
 from src.database.db import db_manager
+
+MONITORED_CHANNELS = []
 
 
 class StoryNotifierBot:
@@ -181,6 +186,27 @@ class StoryNotifierBot:
             await asyncio.sleep(1)
         
         return sent_count
+
+    async def send_daily_digest_header(self):
+        """Отправить заголовок ежедневной выгрузки"""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        message = MESSAGES["daily_digest_header"].format(timestamp=timestamp)
+        await self.send_message(message, parse_mode=None)
+
+    async def send_daily_digest_summary(self, sent_count: int, pending_count: int):
+        """Отправить итог ежедневной выгрузки"""
+        message = (
+            f"✅ Ежедневная отправка завершена\n\n"
+            f"📦 Было в очереди: {pending_count}\n"
+            f"📤 Отправлено: {sent_count}"
+        )
+        await self.send_message(message, parse_mode=None)
+
+    async def send_digest_empty(self):
+        """Сообщить, что для ежедневной отправки ничего нет"""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        message = MESSAGES["daily_digest_empty"].format(timestamp=timestamp)
+        await self.send_message(message, parse_mode=None)
     
     async def send_bot_started(self):
         """Отправить уведомление о запуске бота"""
@@ -300,7 +326,9 @@ class StoryNotifierBot:
             "/add username - Добавить аккаунт\n"
             "/remove username - Удалить аккаунт\n"
             "/help - Эта справка\n\n"
-            f"Бот проверяет stories каждые {TRACKED_ACCOUNTS} часа"
+            f"Проверка stories: каждые {CHECK_INTERVAL_HOURS} часа(ов)\n"
+            f"Доставка в Telegram: {TELEGRAM_DELIVERY_MODE}\n"
+            f"Время daily digest: {DAILY_DIGEST_TIME}"
         )
         
         await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
