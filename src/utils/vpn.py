@@ -95,12 +95,20 @@ class VPNChecker:
                 if not port:
                     continue
 
+                if protocol == 'socks':
+                    proxy_scheme = 'socks5'
+                elif protocol == 'http':
+                    proxy_scheme = 'http'
+                else:
+                    proxy_scheme = protocol
+
                 return {
-                    'scheme': protocol,
+                    'scheme': proxy_scheme,
                     'host': listen,
                     'port': str(port),
-                    'url': f"{protocol}://{listen}:{port}",
+                    'url': f"{proxy_scheme}://{listen}:{port}",
                     'tag': inbound.get('tag', protocol),
+                    'protocol': protocol,
                 }
 
         return None
